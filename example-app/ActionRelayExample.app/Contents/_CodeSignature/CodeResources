@@ -6,7 +6,7 @@
 	<dict>
 		<key>Resources/Metadata.appintents/extract.actionsdata</key>
 		<data>
-		3Gm3DHnvoqfVg2RVDlKxS27rtkE=
+		WBS4LjYtcs7Hb356IAU5f6VJ+d4=
 		</data>
 		<key>Resources/Metadata.appintents/version.json</key>
 		<data>
@@ -19,10 +19,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			8Fv2v3ug5NZpDM/plbQJWkWLmEI=
+			xoc3SLc5vzfQAKlHngc91kZ+g0U=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"f05bf6bf7ba0e4d6690ccfe995b4095a458b9842"</string>
+			<string>cdhash H"c6873748b739bf37d000a9479e073dd6467e8345"</string>
 		</dict>
 		<key>MacOS/__preview.dylib</key>
 		<dict>
@@ -37,7 +37,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			FlQr4Q+jiQeo71e08NY19LNQZa+nUQ1QlrzwdUhrQKU=
+			8FoKtSNdPwl2mmwfcCDJa/Eml1fdy58F0DLLEMNOgk8=
 			</data>
 		</dict>
 		<key>Resources/Metadata.appintents/version.json</key>

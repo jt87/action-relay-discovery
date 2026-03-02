@@ -9,6 +9,22 @@ struct HelloWorldIntent: AppIntent {
     }
 }
 
+struct GreetIntent: AppIntent {
+    static var title: LocalizedStringResource = "Greet Person"
+    static var description: IntentDescription = "Returns a greeting for the given name"
+
+    @Parameter(title: "Name", description: "The person's name", default: "World")
+    var name: String
+
+    @Parameter(title: "Formal", description: "Use formal greeting", default: false)
+    var formal: Bool
+
+    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+        let greeting = formal ? "Good day, \(name)." : "Hey \(name)!"
+        return .result(value: greeting)
+    }
+}
+
 struct ActionRelayExampleShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
