@@ -7,6 +7,8 @@ struct AppIntentMetadata: Sendable {
     let appName: String
     let actions: [String: ActionMetadata]
     let enums: [String: EnumMetadata]
+    let entities: [String: EntityMetadata]
+    let queries: [String: QueryMetadata]
 }
 
 struct ActionMetadata: Sendable {
@@ -64,6 +66,87 @@ struct EnumMetadata: Sendable {
 struct EnumCase: Sendable {
     let identifier: String
     let displayTitle: String
+}
+
+// MARK: - Entity & Query Types
+
+struct EntityMetadata: Sendable {
+    let typeName: String
+    let displayTypeName: String
+    let properties: [EntityPropertyMetadata]
+    let defaultQueryIdentifier: String?
+    let mangledTypeName: String
+}
+
+struct EntityPropertyMetadata: Sendable {
+    let identifier: String
+    let title: String
+    let valueType: ValueType
+    let isOptional: Bool
+}
+
+struct QueryMetadata: Sendable {
+    let identifier: String
+    let fullyQualifiedIdentifier: String
+    let entityType: String
+    let capabilities: QueryCapabilities
+    let parameters: [QueryFilterParameter]
+    let sortingOptions: [QuerySortingOption]
+    let isDefaultQuery: Bool
+    let descriptionText: String?
+    let mangledTypeName: String
+}
+
+struct QueryFilterParameter: Sendable {
+    let propertyIdentifier: String
+    let localizedTitle: String
+    let comparators: [QueryComparator]
+}
+
+struct QueryComparator: Sendable {
+    let comparatorType: ComparatorType
+    let valueType: ValueType
+}
+
+enum ComparatorType: Int, Sendable, CustomStringConvertible {
+    case equals = 0
+    case notEquals = 1
+    case lessThan = 2
+    case greaterThan = 3
+    case lessThanOrEquals = 4
+    case greaterThanOrEquals = 5
+    case contains = 6
+    case on = 9
+    case after = 10
+    case before = 11
+
+    var description: String {
+        switch self {
+        case .equals: return "equals"
+        case .notEquals: return "not_equals"
+        case .lessThan: return "less_than"
+        case .greaterThan: return "greater_than"
+        case .lessThanOrEquals: return "at_most"
+        case .greaterThanOrEquals: return "at_least"
+        case .contains: return "contains"
+        case .on: return "on"
+        case .after: return "after"
+        case .before: return "before"
+        }
+    }
+}
+
+struct QueryCapabilities: OptionSet, Sendable {
+    let rawValue: Int
+
+    static let search = QueryCapabilities(rawValue: 2)
+    static let filter = QueryCapabilities(rawValue: 4)
+    static let sort = QueryCapabilities(rawValue: 8)
+}
+
+struct QuerySortingOption: Sendable {
+    let propertyIdentifier: String
+    let title: String
 }
 
 // MARK: - Discovery
@@ -168,12 +251,16 @@ enum Discovery {
 
         let enums = parseEnums(json["enums"])
         let actions = parseActions(json["actions"] as? [String: Any] ?? [:])
+        let entities = parseEntities(json["entities"] as? [String: Any] ?? [:])
+        let queries = parseQueries(json["queries"] as? [String: Any] ?? [:])
 
         return AppIntentMetadata(
             bundleIdentifier: bundleID,
             appName: appName,
             actions: actions,
-            enums: enums
+            enums: enums,
+            entities: entities,
+            queries: queries
         )
     }
 
@@ -266,21 +353,39 @@ enum Discovery {
         }
 
         // Check for link enumeration: {"linkEnumeration": {"identifier": "..."}}
-        if let linkEnum = dict["linkEnumeration"] as? [String: Any],
-           let id = linkEnum["identifier"] as? String {
-            return .linkEnumeration(identifier: id)
+        // or wrapped: {"linkEnumeration": {"wrapper": {"identifier": "..."}}}
+        if let linkEnum = dict["linkEnumeration"] as? [String: Any] {
+            if let id = linkEnum["identifier"] as? String {
+                return .linkEnumeration(identifier: id)
+            }
+            if let wrapper = linkEnum["wrapper"] as? [String: Any],
+               let id = wrapper["identifier"] as? String {
+                return .linkEnumeration(identifier: id)
+            }
         }
 
         // Check for entity: {"entity": {"typeName": "..."}}
-        if let entity = dict["entity"] as? [String: Any],
-           let typeName = entity["typeName"] as? String {
-            return .entity(typeName: typeName)
+        // or wrapped: {"entity": {"wrapper": {"typeName": "..."}}}
+        if let entity = dict["entity"] as? [String: Any] {
+            if let typeName = entity["typeName"] as? String {
+                return .entity(typeName: typeName)
+            }
+            if let wrapper = entity["wrapper"] as? [String: Any],
+               let typeName = wrapper["typeName"] as? String {
+                return .entity(typeName: typeName)
+            }
         }
 
         // Check for array: {"array": {"memberValueType": {...}}}
-        if let array = dict["array"] as? [String: Any],
-           let memberType = parseValueType(array["memberValueType"] as? [String: Any]) {
-            return .array(memberType: memberType)
+        // or wrapped: {"array": {"wrapper": {"memberValueType": {...}}}}
+        if let array = dict["array"] as? [String: Any] {
+            if let memberType = parseValueType(array["memberValueType"] as? [String: Any]) {
+                return .array(memberType: memberType)
+            }
+            if let wrapper = array["wrapper"] as? [String: Any],
+               let memberType = parseValueType(wrapper["memberValueType"] as? [String: Any]) {
+                return .array(memberType: memberType)
+            }
         }
 
         // Check for measurement: {"measurement": {"unitType": N}}
@@ -334,6 +439,103 @@ enum Discovery {
         }
 
         return nil
+    }
+
+    // MARK: - Entity Parsing
+
+    private static func parseEntities(_ dict: [String: Any]) -> [String: EntityMetadata] {
+        var result: [String: EntityMetadata] = [:]
+        for (identifier, value) in dict {
+            guard let entityDict = value as? [String: Any] else { continue }
+            let typeName = entityDict["typeName"] as? String ?? identifier
+            let displayTypeDict = entityDict["displayTypeName"] as? [String: Any]
+            let displayTypeName = displayTypeDict?["key"] as? String ?? typeName
+            let defaultQueryID = entityDict["defaultQueryIdentifier"] as? String
+            let mangledTypeName = entityDict["mangledTypeName"] as? String ?? ""
+
+            let properties = (entityDict["properties"] as? [[String: Any]] ?? []).compactMap { propDict -> EntityPropertyMetadata? in
+                guard let propID = propDict["identifier"] as? String else { return nil }
+                let titleDict = propDict["title"] as? [String: Any]
+                let title = titleDict?["key"] as? String ?? propID
+                let valueType = parseValueType(propDict["valueType"] as? [String: Any]) ?? .primitive(.string)
+                let isOptional = propDict["isOptional"] as? Bool ?? false
+                return EntityPropertyMetadata(
+                    identifier: propID,
+                    title: title,
+                    valueType: valueType,
+                    isOptional: isOptional
+                )
+            }
+
+            result[identifier] = EntityMetadata(
+                typeName: typeName,
+                displayTypeName: displayTypeName,
+                properties: properties,
+                defaultQueryIdentifier: defaultQueryID,
+                mangledTypeName: mangledTypeName
+            )
+        }
+        return result
+    }
+
+    // MARK: - Query Parsing
+
+    private static func parseQueries(_ dict: [String: Any]) -> [String: QueryMetadata] {
+        var result: [String: QueryMetadata] = [:]
+        for (identifier, value) in dict {
+            guard let queryDict = value as? [String: Any] else { continue }
+
+            let qIdentifier = queryDict["identifier"] as? String ?? identifier
+            let fullyQualified = queryDict["fullyQualifiedIdentifier"] as? String ?? identifier
+            let entityType = queryDict["entityType"] as? String ?? ""
+            let capRaw = queryDict["capabilities"] as? Int ?? 0
+            let capabilities = QueryCapabilities(rawValue: capRaw)
+            let isDefault = queryDict["defaultQueryForEntity"] as? Bool ?? false
+            let mangledTypeName = queryDict["mangledTypeName"] as? String ?? ""
+
+            let descDict = queryDict["descriptionMetadata"] as? [String: Any]
+            let descTextDict = descDict?["descriptionText"] as? [String: Any]
+            let descriptionText = descTextDict?["key"] as? String
+
+            let parameters = (queryDict["parameters"] as? [[String: Any]] ?? []).compactMap { paramDict -> QueryFilterParameter? in
+                guard let propID = paramDict["propertyIdentifier"] as? String else { return nil }
+                let titleDict = paramDict["localizedTitle"] as? [String: Any]
+                let localizedTitle = titleDict?["key"] as? String ?? propID
+
+                let comparators = (paramDict["comparators"] as? [[String: Any]] ?? []).compactMap { compDict -> QueryComparator? in
+                    guard let typeVal = compDict["comparatorTypeValue"] as? Int,
+                          let compType = ComparatorType(rawValue: typeVal) else { return nil }
+                    let valueType = parseValueType(compDict["valueType"] as? [String: Any]) ?? .primitive(.string)
+                    return QueryComparator(comparatorType: compType, valueType: valueType)
+                }
+
+                return QueryFilterParameter(
+                    propertyIdentifier: propID,
+                    localizedTitle: localizedTitle,
+                    comparators: comparators
+                )
+            }
+
+            let sortingOptions = (queryDict["sortingOptions"] as? [[String: Any]] ?? []).compactMap { sortDict -> QuerySortingOption? in
+                guard let propID = sortDict["propertyIdentifier"] as? String else { return nil }
+                let titleDict = sortDict["title"] as? [String: Any]
+                let title = titleDict?["key"] as? String ?? propID
+                return QuerySortingOption(propertyIdentifier: propID, title: title)
+            }
+
+            result[identifier] = QueryMetadata(
+                identifier: qIdentifier,
+                fullyQualifiedIdentifier: fullyQualified,
+                entityType: entityType,
+                capabilities: capabilities,
+                parameters: parameters,
+                sortingOptions: sortingOptions,
+                isDefaultQuery: isDefault,
+                descriptionText: descriptionText,
+                mangledTypeName: mangledTypeName
+            )
+        }
+        return result
     }
 
     private static func parseEnums(_ value: Any?) -> [String: EnumMetadata] {

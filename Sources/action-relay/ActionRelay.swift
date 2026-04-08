@@ -59,27 +59,86 @@ struct ActionRelay: AsyncParsableCommand {
         }
 
         await server.withMethodHandler(CallTool.self) { params in
-            guard let action = metadata.actions[params.name] else {
-                return .init(content: [.text("Unknown tool: \(params.name)")], isError: true)
-            }
-
-            // Convert MCP arguments to plist parameters
+            // Convert MCP arguments to raw dict
             let mcpArgs = params.arguments ?? [:]
             var rawArgs: [String: Any] = [:]
             for (key, value) in mcpArgs {
                 rawArgs[key] = valueToAny(value)
             }
 
-            let plistParams = WorkflowBuilder.convertArguments(
-                rawArgs, action: action, metadata: metadata
-            )
+            let workflowData: Data
 
-            let workflowData = WorkflowBuilder.build(
-                bundleID: metadata.bundleIdentifier,
-                appName: metadata.appName,
-                intentIdentifier: action.identifier,
-                parameters: plistParams
-            )
+            if params.name.hasPrefix("find_") {
+                // Entity query tool
+                let entityTypeName = String(params.name.dropFirst("find_".count))
+                guard let entity = metadata.entities.values.first(where: { $0.typeName == entityTypeName }),
+                      let query = metadata.queries.values.first(where: {
+                          $0.entityType == entityTypeName && $0.isDefaultQuery
+                      })
+                else {
+                    return .init(content: [.text("Unknown query tool: \(params.name)")], isError: true)
+                }
+
+                let queryArgs = WorkflowBuilder.convertQueryArguments(rawArgs, query: query)
+                workflowData = WorkflowBuilder.buildEntityQuery(
+                    bundleID: metadata.bundleIdentifier,
+                    appName: metadata.appName,
+                    query: query,
+                    entity: entity,
+                    arguments: queryArgs
+                )
+            } else {
+                // Action intent tool
+                guard let action = metadata.actions[params.name] else {
+                    return .init(content: [.text("Unknown tool: \(params.name)")], isError: true)
+                }
+
+                let plistParams = WorkflowBuilder.convertArguments(
+                    rawArgs, action: action, metadata: metadata
+                )
+
+                // Check if any entity parameters need auto-resolution
+                var entityResolutions: [WorkflowBuilder.EntityResolution] = []
+                for param in action.parameters {
+                    guard case .entity(let typeName) = param.valueType,
+                          let value = plistParams[param.name] as? String,
+                          !value.isEmpty
+                    else { continue }
+
+                    // Find the default query for this entity type
+                    guard let query = metadata.queries.values.first(where: {
+                        $0.entityType == typeName && $0.isDefaultQuery
+                    }) else { continue }
+
+                    let entity = metadata.entities.values.first(where: { $0.typeName == typeName })
+                    let outputName = entity?.displayTypeName ?? typeName
+
+                    entityResolutions.append(WorkflowBuilder.EntityResolution(
+                        paramName: param.name,
+                        queryIdentifier: query.identifier,
+                        searchString: value,
+                        queryUUID: UUID().uuidString,
+                        outputName: outputName
+                    ))
+                }
+
+                if entityResolutions.isEmpty {
+                    workflowData = WorkflowBuilder.build(
+                        bundleID: metadata.bundleIdentifier,
+                        appName: metadata.appName,
+                        intentIdentifier: action.identifier,
+                        parameters: plistParams
+                    )
+                } else {
+                    workflowData = WorkflowBuilder.buildWithEntityResolution(
+                        bundleID: metadata.bundleIdentifier,
+                        appName: metadata.appName,
+                        intentIdentifier: action.identifier,
+                        parameters: plistParams,
+                        entityResolutions: entityResolutions
+                    )
+                }
+            }
 
             do {
                 let result = try await executor.execute(workflowData: workflowData)
