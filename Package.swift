@@ -15,9 +15,6 @@ let package = Package(
             dependencies: [
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ],
-            linkerSettings: [
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "/System/Library/PrivateFrameworks"]),
             ]
         ),
     ]
