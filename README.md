@@ -1,30 +1,29 @@
 # action-relay
 
-MCP server that exposes macOS App Intents as tools. Point it at any app that ships App Intents and it'll discover every intent, parse parameter schemas, and let you call them from any MCP client.
+Discovery tool that reads App Intents metadata from any macOS app and exposes the discovered intents as MCP tools.
 
-No pre-created Shortcuts required. No hand-coded actions per app. It reads the intent metadata that Apple's toolchain bakes into every `.app` bundle and generates the tool definitions automatically.
+No pre-created Shortcuts required. No hand-coded actions per app. It reads the intent metadata that Apple's toolchain bakes into every `.app` bundle and generates tool definitions automatically.
 
 ## How it works
 
 1. **Discovery** — finds `Metadata.appintents/extract.actionsdata` inside the app bundle and parses the JSON into typed intent/parameter metadata
 2. **Schema generation** — converts each intent into an MCP tool with a proper JSON Schema (types, required/optional, defaults, enums)
-3. **Execution** — builds a single-action workflow plist and sends it to `BackgroundShortcutRunner.xpc` over XPC, the same pipeline that Shortcuts.app uses internally
-4. **Output** — extracts return values from the NSKeyedArchiver response and returns them as MCP tool content
+3. **List** — exposes the tools via MCP `list_tools` so any MCP client can see what intents the app supports
+
+This is a read-only discovery tool. It does not execute intents.
 
 ## Requirements
 
 - macOS (Apple Silicon)
 - Swift 6.0+
-- **SIP and AMFI disabled** for raw workflow execution (Option B). Without this, you can only discover intents but not execute them.
-- A signing identity with `com.apple.shortcuts.background-running` entitlement (the build script handles this automatically)
+
+No special entitlements or security configuration needed.
 
 ## Build
 
 ```
 ./build.sh
 ```
-
-This runs `swift build` and signs the binary with the right entitlements if AMFI is disabled.
 
 ## Usage
 
@@ -44,7 +43,7 @@ Accepts an app name (searched in `/Applications` and `/System/Applications`), a 
 action-relay Notes
 ```
 
-Starts a stdio MCP server exposing every discovered intent as a tool.
+Starts a stdio MCP server. MCP clients can call `list_tools` to see every discovered intent as a tool definition.
 
 ### Add to Claude Code
 
@@ -52,7 +51,7 @@ Starts a stdio MCP server exposing every discovered intent as a tool.
 claude mcp add my-notes-tools -- /path/to/action-relay Notes
 ```
 
-Then restart Claude Code. The tools show up automatically.
+Then restart Claude Code. The discovered intents appear as tools Claude can inspect.
 
 ## What it looks like
 
@@ -78,13 +77,6 @@ $ action-relay UTM --list
 
 Notes gives you 47 tools. UTM gives you 9. Any app with App Intents works.
 
-## Limitations
-
-- Execution requires SIP + AMFI disabled (this is a dev/research tool, not something you'd ship)
-- Entity parameters (like "which VM" or "which note") currently take string IDs — there's no entity resolution yet, so you need to know the entity identifier
-- File parameters (`IntentFile`) are passed as path strings — the actual encoding may need more work for some apps
-- Apple is building native MCP support into App Intents (spotted in macOS Tahoe 26.1 beta) which will eventually make this unnecessary
-
 ## Project structure
 
 ```
@@ -93,10 +85,6 @@ Sources/action-relay/
   ActionRelay.swift        # CLI entry + MCP server
   Discovery.swift          # extract.actionsdata parser
   SchemaGenerator.swift    # metadata → MCP tools
-  WorkflowBuilder.swift    # workflow plist builder
-  IntentExecutor.swift     # async XPC client
-  OutputExtractor.swift    # NSKeyedArchiver → MCP content
-build.sh                   # build + sign
+build.sh                   # build script
 example-app/               # test app with HelloWorldIntent + GreetIntent
-research/                  # reverse engineering notes, Frida scripts, prototypes
 ```
