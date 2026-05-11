@@ -167,6 +167,7 @@ enum Discovery {
         // Try as app name in common locations
         let searchDirs = [
             "/Applications",
+            NSHomeDirectory() + "/Applications",
             "/System/Applications",
             "/System/Applications/Utilities",
         ]

@@ -97,8 +97,7 @@ enum SchemaGenerator {
             // Find the matching query
             let query = metadata.queries.values.first { q in
                 q.fullyQualifiedIdentifier == defaultQueryID
-                    || "\(metadata.bundleIdentifier.split(separator: ".").last ?? "").\(q.identifier)" == defaultQueryID.replacingOccurrences(of: metadata.bundleIdentifier + ".", with: "\(metadata.bundleIdentifier.split(separator: ".").last ?? "").")
-                    || q.entityType == entity.typeName && q.isDefaultQuery
+                    || (q.entityType == entity.typeName && q.isDefaultQuery)
             }
 
             guard let query = query else { continue }

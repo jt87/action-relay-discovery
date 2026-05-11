@@ -52,6 +52,13 @@ struct ActionRelay: AsyncParsableCommand {
             .init(tools: tools)
         }
 
+        await server.withMethodHandler(CallTool.self) { _ in
+            .init(
+                content: [.text("action-relay is a discovery-only server — tool execution is not supported.")],
+                isError: true
+            )
+        }
+
         let transport = StdioTransport()
         try await server.start(transport: transport)
         await server.waitUntilCompleted()
