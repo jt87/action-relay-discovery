@@ -16,6 +16,9 @@ struct ActionRelay: AsyncParsableCommand {
     @Flag(name: .long, help: "List discovered tools as JSON and exit")
     var list: Bool = false
 
+    @Option(name: .long, help: "Write discovery results to a Markdown file at this path and exit")
+    var output: String? = nil
+
     func run() async throws {
         let appPath: String
         do {
@@ -38,8 +41,16 @@ struct ActionRelay: AsyncParsableCommand {
         if list {
             let json = try SchemaGenerator.toolsToJSON(tools)
             print(json)
-            return
         }
+
+        if let outputPath = output {
+            let markdown = MarkdownExporter.export(metadata)
+            let expanded = (outputPath as NSString).expandingTildeInPath
+            try Data(markdown.utf8).write(to: URL(fileURLWithPath: expanded))
+            FileHandle.standardError.write(Data("Exported: \(expanded)\n".utf8))
+        }
+
+        if list || output != nil { return }
 
         // Start MCP server on stdio (list_tools only — no execution)
         let server = Server(
